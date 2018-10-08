@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"log"
+	"sync"
 
 	"github.com/ethereum/go-ethereum/p2p"
 	"github.com/ethereum/go-ethereum/p2p/discover"
@@ -52,7 +53,14 @@ func (c *Chat) Run(ctx context.Context) error {
 
 	c.connect()
 	c.run(ctx)
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		c.finalize()
+		wg.Done()
+	}()
 	c.srv.Stop()
+	wg.Wait()
 	return nil
 }
 
@@ -74,25 +82,30 @@ func (c *Chat) connect() {
 			continue
 		}
 		c.srv.AddPeer(n)
+		log.Printf("info: added peer %s", n.String())
 	}
 	c.initPeers = nil // help the gc a little bit
+}
+
+func (c *Chat) handlePeerAction(p Peer) {
+	if _, ok := c.peers[p.Peer.ID]; ok {
+		delete(c.peers, p.Peer.ID)
+		if c.OnPeerOut != nil {
+			c.OnPeerOut(p.Peer)
+		}
+	} else {
+		c.peers[p.Peer.ID] = p
+		if c.OnPeerIn != nil {
+			c.OnPeerIn(p.Peer)
+		}
+	}
 }
 
 func (c *Chat) run(ctx context.Context) {
 	for {
 		select {
 		case p := <-c.peerC:
-			if _, ok := c.peers[p.Peer.ID]; ok {
-				delete(c.peers, p.Peer.ID)
-				if c.OnPeerOut != nil {
-					c.OnPeerOut(p.Peer)
-				}
-			} else {
-				c.peers[p.Peer.ID] = p
-				if c.OnPeerIn != nil {
-					c.OnPeerIn(p.Peer)
-				}
-			}
+			c.handlePeerAction(p)
 		case in := <-c.inC:
 			if c.OnMsg != nil {
 				c.OnMsg(in.Peer, in.Msg)
@@ -105,10 +118,18 @@ func (c *Chat) run(ctx context.Context) {
 	}
 }
 
-func (c *Chat) Close() {
+func (c *Chat) finalize() {
+	for len(c.peers) > 0 {
+		// read all the peers finishing sends
+		p := <-c.peerC
+		c.handlePeerAction(p)
+	}
 	close(c.peerC)
-	close(c.outC)
 	close(c.inC)
+}
+
+func (c *Chat) Close() {
+	close(c.outC)
 }
 
 func (c *Chat) Send(ctx context.Context, msg string) {

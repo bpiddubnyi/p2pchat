@@ -65,11 +65,16 @@ func init() {
 	flag.BoolVar(&showHelp, "h", showHelp, "show this help message and exit")
 }
 
-func handleInput(ctx context.Context, c *chat.Chat) {
-	s := bufio.NewScanner(os.Stdin)
-	for ctx.Err() != nil && s.Scan() {
-		c.Send(ctx, s.Text())
+func handleInput(ctx context.Context, c *chat.Chat) error {
+	r := bufio.NewReader(os.Stdin)
+	for ctx.Err() == nil {
+		text, err := r.ReadString('\n')
+		if err != nil {
+			return err
+		}
+		c.Send(ctx, text)
 	}
+	return ctx.Err()
 }
 
 func main() {
@@ -149,8 +154,7 @@ func main() {
 	{
 		ctx, cancel := context.WithCancel(ctx)
 		g.Add(func() error {
-			handleInput(ctx, c)
-			return nil
+			return handleInput(ctx, c)
 		}, func(error) {
 			cancel()
 		})
