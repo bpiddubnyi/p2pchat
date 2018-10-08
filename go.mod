@@ -10,9 +10,11 @@ require (
 	github.com/huin/goupnp v0.0.0-20180415215157-1395d1447324 // indirect
 	github.com/jackpal/go-nat-pmp v1.0.1 // indirect
 	github.com/kr/pretty v0.1.0 // indirect
+	github.com/kr/pty v1.1.3 // indirect
 	github.com/oklog/run v1.0.0
 	github.com/onsi/gomega v1.4.2 // indirect
 	github.com/syndtr/goleveldb v0.0.0-20180815032940-ae2bd5eed72d // indirect
 	golang.org/x/net v0.0.0-20181005035420-146acd28ed58 // indirect
+	golang.org/x/sys v0.0.0-20181005133103-4497e2df6f9e // indirect
 	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
 )

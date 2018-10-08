@@ -49,16 +49,16 @@ theLoop:
 		msg, err := r.ReadMsg()
 		if err != nil {
 			if err == io.EOF {
-				log.Printf("info: %s: peer disconnected", peer.LocalAddr().String())
+				log.Printf("info: %s: peer disconnected", peer.RemoteAddr().String())
 			} else {
-				log.Printf("error: %s: message read failed: %s", peer.LocalAddr().String(), err)
+				log.Printf("error: %s: message read failed: %s", peer.RemoteAddr().String(), err)
 			}
 			return err
 		}
 
 		var msgData string
 		if err = msg.Decode(&msgData); err != nil {
-			log.Printf("error: %s: message decode failed: %s", peer.LocalAddr().String(), err)
+			log.Printf("error: %s: message decode failed: %s", peer.RemoteAddr().String(), err)
 			continue
 		}
 
@@ -76,7 +76,7 @@ func genChatRun(peerC chan<- Peer, inC chan<- RxMsg) func(peer *p2p.Peer, ws p2p
 		outC := make(chan string)
 		defer close(outC)
 
-		log.Printf("info: %s: peer connected", peer.LocalAddr().String())
+		log.Printf("info: %s: peer connected", peer.RemoteAddr().String())
 		peerC <- Peer{peer.Info(), outC}
 
 		ctx := context.Background()
