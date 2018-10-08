@@ -82,7 +82,6 @@ func (c *Chat) connect() {
 			continue
 		}
 		c.srv.AddPeer(n)
-		log.Printf("info: added peer %s", n.String())
 	}
 	c.initPeers = nil // help the gc a little bit
 }

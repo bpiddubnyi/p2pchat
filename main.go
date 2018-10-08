@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/bpiddubnyi/p2pchat/chat"
@@ -59,6 +61,32 @@ func parseConfig(cfgFile string) (*config, error) {
 	return &c, nil
 }
 
+func getKey(keyFile string) (*ecdsa.PrivateKey, error) {
+	_, err := os.Stat(keyFile)
+	var key *ecdsa.PrivateKey
+	if os.IsNotExist(err) {
+		log.Println("info: generating new private key")
+		key, err = crypto.GenerateKey()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate key: %s", err)
+		}
+
+		log.Printf("info: saving private key to '%s'", keyFile)
+		if err = crypto.SaveECDSA(keyFile, key); err != nil {
+			return nil, fmt.Errorf("failed to save private key to '%s': %s", keyFile, err)
+		}
+	} else if err != nil {
+		return nil, fmt.Errorf("key file error: %s", err)
+	} else {
+		log.Printf("info: reading private key from '%s'", keyFile)
+		key, err = crypto.LoadECDSA(keyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read private key from file: %s", err)
+		}
+	}
+	return key, nil
+}
+
 func init() {
 	flag.StringVar(&cfgFilename, "c", cfgFilename, "path to config file")
 	flag.StringVar(&keyFilename, "k", keyFilename, "path to ECDSA private key in x509 format")
@@ -66,14 +94,22 @@ func init() {
 }
 
 func handleInput(ctx context.Context, c *chat.Chat) error {
-	r := bufio.NewReader(os.Stdin)
-	for ctx.Err() == nil {
-		text, err := r.ReadString('\n')
-		if err != nil {
-			return err
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		r := bufio.NewReader(os.Stdin)
+		for ctx.Err() == nil {
+			text, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			c.Send(ctx, text)
 		}
-		c.Send(ctx, text)
-	}
+		wg.Done()
+	}()
+
+	<-ctx.Done()
+	os.Stdin.Close()
 	return ctx.Err()
 }
 
@@ -86,40 +122,18 @@ func main() {
 
 	cfg, err := parseConfig(cfgFilename)
 	if err != nil {
-		log.Fatalf("error: failed to parse config: %s", err)
+		log.Fatalf("fatal: failed to parse config: %s", err)
 	}
 
-	if len(cfg.KeyFile) == 0 {
-		cfg.KeyFile = keyFilename
-	}
-	_, err = os.Stat(cfg.KeyFile)
-
-	var key *ecdsa.PrivateKey
-	if os.IsNotExist(err) {
-		log.Println("info: generating new private key")
-		key, err = crypto.GenerateKey()
-		if err != nil {
-			log.Fatalf("error: failed to generate key: %s", err)
-		}
-
-		log.Printf("info: saving private key to '%s'", cfg.KeyFile)
-		if err = crypto.SaveECDSA(cfg.KeyFile, key); err != nil {
-			log.Fatalf("error: failed to save private key to '%s': %s", cfg.KeyFile, err)
-		}
-	} else if err != nil {
-		log.Fatalf("error: key file error: %s", err)
-	} else {
-		log.Printf("info: reading private key from '%s'", cfg.KeyFile)
-		key, err = crypto.LoadECDSA(cfg.KeyFile)
-		if err != nil {
-			log.Fatalf("error: failed to read private key from file: %s", err)
-		}
+	key, err := getKey(cfg.KeyFile)
+	if err != nil {
+		log.Fatalf("fatal: failed to get encryption key: %s", err)
 	}
 	log.Printf("info: public key: %x", crypto.FromECDSAPub(&key.PublicKey))
 
 	c, err := chat.New(key, cfg.Name, cfg.ListenAddress, cfg.Peers)
 	if err != nil {
-		log.Fatalf("error: failed to create chat instanse: %s", err)
+		log.Fatalf("fatal: failed to create chat instanse: %s", err)
 	}
 	defer c.Close()
 
@@ -127,10 +141,10 @@ func main() {
 		log.Printf("%s: %s", p.Name, msg)
 	}
 	c.OnPeerIn = func(p *p2p.PeerInfo) {
-		log.Printf("%s logged in", p.Name)
+		log.Printf("connected to %s", p.Name)
 	}
 	c.OnPeerOut = func(p *p2p.PeerInfo) {
-		log.Printf("%s logged out", p.Name)
+		log.Printf("disconnected from %s", p.Name)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -161,6 +175,8 @@ func main() {
 	}
 
 	if err = g.Run(); err != nil {
-		log.Fatalf("error: chat failed: %s", err)
+		if err != context.Canceled {
+			log.Fatalf("error: chat failed: %s", err)
+		}
 	}
 }
